@@ -1,66 +1,58 @@
 # BerrizReader Web App
 
-BerrizReader is a mobile app for reading messages from a local database of conversations. This project implements a web-based version of the application using HTML, CSS, and JavaScript, with Google Cloud Storage (GCS) for database distribution.
+BerrizReader is a serverless, frontend-only web application designed as a desktop-friendly archive reader. It replicates the functionality of a native Android app, parsing a SQLite database of conversations directly in the browser using WebAssembly. 
 
-## Features
+This project was built iteratively using an AI Coding Agent, and this README serves as context for future agentic development.
 
-- **Cloud-Based Database**: Automatically downloads and caches the SQLite database from a Google Cloud Storage bucket.
-- **Dynamic UI**: No hardcoded data. The user interface is generated dynamically from the database schema.
-- **Data Synchronization**:
-  - Checks for `version.json` to determine if the database needs to be updated.
-  - Downloads the latest database file if available.
-- **Interactive Features**:
-  - **Tabs**: Automatically creates tabs for each board found in the database.
-  - **Feed View**: Displays posts and replies in a chronological feed.
-  - **Thread View**: Detailed view of a specific thread with all posts and replies.
-  - **Translation Toggle**: Button to show/hide English translations of posts (if available in the database).
-  - **Cultural Notes Toggle**: Button to show/hide cultural notes (if available in the database).
-- **Error Handling**: Graceful handling of network errors and database issues with user-friendly messages.
-- **Loading States**: Visual feedback while loading the database and rendering content.
-- **Responsive Design**: Basic styling for readability on different screen sizes.
+## Tech Stack & Architecture
 
-## Prerequisites
+- **Frontend Core**: Vanilla HTML, CSS (Custom Properties/Flexbox), and ES6 Modules (`app.js`). Zero build step (no Webpack/Vite/Babel) for maximum simplicity.
+- **Database Engine**: [sql.js](https://sql.js.org/) (SQLite compiled to WebAssembly) is used to execute SQL queries entirely on the client-side.
+- **Data Source**: A pre-compiled `berriz_v2.db` SQLite database hosted on a public Google Cloud Storage (GCS) bucket.
+- **Local Storage (Offline-First)**: The browser's native **IndexedDB** is used to cache the 5+ MB database. The app loads instantly from the local cache and only hits the network when the user explicitly clicks the "Sync" button.
 
-Before you begin, ensure you have the following set up:
+## Agentic Development Context
 
-1.  **Google Cloud Storage Bucket**: The bucket must be publicly accessible (or have appropriate CORS configuration) to allow the web app to download the database file.
-2.  **Database File**: A SQLite database file (default: `berriz_v2.db`) must be uploaded to the bucket.
-3.  **Version File**: A `version.json` file in the same bucket is recommended to manage database versions.
+If you are an AI agent analyzing this repo for future modifications, here is a summary of the historical implementation choices:
+
+### 1. Database & Schema Handling
+- The app relies primarily on a view (or flattened table) called `combined_view`, which joins data from `posts`, `artist_activity`, and `media_files`.
+- **Media**: Media file paths are aggregated using `GROUP_CONCAT(localFilePath)` by matching `contentId` to `postId` or `artistContentId`.
+- **Cultural Notes**: The database has a single `cultural_notes` column in `combined_view`. When processing rows in `app.js`, we group them by `postId` into thread objects. The `cultural_notes` on the *first* row processed for a thread is mapped to the parent post, while `cultural_notes` for subsequent replies are mapped to those specific `artistComments`. 
+
+### 2. UI State & Rendering (`app.js`)
+- **State Management**: A global `STATE` object tracks current toggles (`showTranslations`, `showCulturalNotes`), the active board filter (`currentBoard`), and whether the user is viewing the feed or a specific thread (`currentThread`).
+- **Dynamic Rendering**: `renderFeed()` and `renderThreadDetail()` dynamically inject HTML into the DOM. Modifying UI templates means editing the string literals in these functions.
+- **Toggle Features**: Translations and Cultural Notes are injected conditionally based on `STATE`. Rather than replacing Korean text, English translations are rendered *inline* in a styled callout box directly below the original text.
+
+### 3. Sync Workflow
+- On `DOMContentLoaded`, `initApp()` attempts to load the SQLite buffer from `IndexedDB`.
+- If successful, it boots `sql.js` entirely offline. 
+- If no database is found, the app shows an "Empty State" UI asking the user to sync.
+- `syncDatabase()` fetches the ArrayBuffer from GCS, saves it to `IndexedDB`, and reloads the UI. 
+- *Note on Images*: Images are *not* explicitly cached into IndexedDB. They rely on the browser's native HTTP disk cache via standard `<img>` tags pointing directly to GCS.
 
 ## Configuration
 
-The application uses a configuration object in `app.js`. You can customize the GCS bucket URL and database filename there.
+The application uses a configuration object at the top of `app.js`.
 
 ```javascript
 const CONFIG = {
     GCS_BUCKET_URL: 'https://storage.googleapis.com/berrizreader-app-data',
-    DB_FILENAME: 'berriz_v2.db',
-    VERSION_FILENAME: 'version.json'
+    DB_FILENAME: 'berriz_v2.db'
 };
 ```
 
-## Files
+## Running Locally
 
--   **`index.html`**: The main HTML entry point.
--   **`styles.css`**: Styles for the application.
--   **`app.js`**: The core logic for data fetching, database processing, and UI rendering.
--   **`README.md`**: This file.
-
-## Development
-
-### Running Locally
-
-Since this is a client-side application that accesses resources from a cloud bucket, you can run it locally using:
+Because this is a static site, you only need a basic HTTP server to run it.
 
 ```bash
-npm install -g http-server
-http-server .
+npx http-server .
+# or
+python3 -m http.server
 ```
 
-Then open `http://localhost:8080` (or the port shown) in your browser.
+Open `http://localhost:8080` (or `8000` for python) in your browser.
 
-**Note**: If you encounter CORS issues, ensure your GCS bucket has the correct CORS configuration.
-
-## License
-
-MIT
+**CORS Note**: The GCS bucket must have a CORS policy allowing `GET` requests from `localhost` and your production origin. If the manual sync fails with a "Network error", it is almost always a CORS issue on the GCS bucket.
