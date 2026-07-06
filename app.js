@@ -214,7 +214,7 @@ function processDatabase(db) {
         const thread = threadsMap.get(row.postId);
         
         // If there's an artist comment in this row, add it
-        if (row.artistContentId) {
+        if (row.artistContentId && row.artistContentId !== row.postId) {
             if (!thread.artistComments.find(c => c.artistContentId === row.artistContentId)) {
                 thread.artistComments.push({
                     artistContentId: row.artistContentId,
